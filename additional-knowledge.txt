@@ -1,0 +1,54 @@
+ตรงนี้มัน follow pattern แบบ RAFT เลย เลยต้องมี 3 ตัวครับ:
+
+    def initialize_flow(self, img):
+        N, C, H, W = img.shape
+        coodslar = coords_grid(N, H, W).to(img.device)
+        coords0 = coords_grid(N, H // 8, W // 8).to(img.device)
+        coords1 = coords_grid(N, H // 8, W // 8).to(img.device)
+
+RAFT ย่อมาจาก “Recurrent All‑Pairs Field Transforms” เป็นสถาปัตยกรรม deep learning สำหรับทำ dense optical flow ระดับ state‑of‑the‑art จากภาพสองเฟรมครับ
+แนวคิดหลักของ RAFT
+    - ใช้ CNN สองตัว (แชร์น้ำหนักกัน) extract feature จากภาพทั้งสองเฟรมแบบ per‑pixel แล้วเอามาคำนวณ all‑pairs correlation volume คือ similarity 
+    ของทุกพิกเซลในภาพแรกกับทุกพิกเซลในภาพที่สอง.
+    - coodslar = coords_large,  full‑resolution coordinate grid เอาไว้บวกกับ flow ที่ upsample แล้ว เพื่อได้พิกัดสุดท้ายที่ resolution เดิมของภาพ = grid resolution ใหญ่ (H×W)
+    - coords0 กับ coords1 มีหน้าที่คนละแบบ แม้ตอน init จะเริ่มจากค่าเท่ากันเป๊ะครับ
+        - coords0: เป็น reference grid แบบคงที่ ที่ resolution ต่ำ [B,2,H/8,W/8]
+        - coords1: เป็น grid ที่ถูกอัปเดตตาม flow [B,2,H/8,W/8]
+        - เริ่มต้นตั้งให้เท่ากับ coords0 → แปลว่า initial flow = 0, coords1 = coords1 + dflow, ทำให้ coords1 ขยับออกจาก coords0 ตาม flow ที่เรียนรู้
+        - ถ้าใช้ตัวเดียว เช่นมีแค่ coords แล้วอัปเดตมันไปเรื่อย ๆ คุณจะไม่มี “จุดอ้างอิงเดิม” เพื่อคำนวณ flow ว่าขยับจากไหนไปไหน
+
+***
+
+class PositionEmbeddingSine(nn.Module):
+    """
+    This is a more standard version of the position embedding, very similar to the one
+    used by the Attention is all you need paper, generalized to work on images.
+
+    ...
+
+    def forward(self, mask):
+        assert mask is not None
+        y_embed = mask.cumsum(1, dtype=torch.float32)
+        x_embed = mask.cumsum(2, dtype=torch.float32)
+        if self.normalize:
+            eps = 1e-6
+            y_embed = y_embed / (y_embed[:, -1:, :] + eps) * self.scale
+            x_embed = x_embed / (x_embed[:, :, -1:] + eps) * self.scale
+
+        dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32).cuda()
+        dim_t = self.temperature ** (2 * (dim_t // 2) / self.num_pos_feats)
+
+        pos_x = x_embed[:, :, :, None] / dim_t
+        pos_y = y_embed[:, :, :, None] / dim_t
+        pos_x = torch.stack((pos_x[:, :, :, 0::2].sin(), pos_x[:, :, :, 1::2].cos()), dim=4).flatten(3)
+        pos_y = torch.stack((pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), dim=4).flatten(3)
+        pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
+        # print(pos.shape)
+        return pos
+
+- เป็นเทคนิคของ  ครับ (
+  เหมือน 1D pos encoding แต่แยกแกน x, y)DETR สำหรับสร้าง “ตำแหน่ง” จาก mask ก่อน แล้วค่อยเอาไปเข้าฟังก์ชัน sinusoidal
+-รองรับกรณีที่ มี padding ไม่เป็นบล็อกสวย ๆ เช่น mask บางจุด valid, บางจุด invalid แบบกระจาย ๆ
+ เมื่อใช้ not_mask.cumsum(dim) ตำแหน่งที่ไม่ใช่ padding (True/1) จะได้เลขวิ่ง 1,2,3,... 
+ ตามลำดับจริงของ valid tokens ส่วน padding ซ้อนกันจะไม่เพิ่มค่า ทำให้ position indices 
+ “เลื่อนตามความจริงของข้อมูลที่เหลืออยู่”
