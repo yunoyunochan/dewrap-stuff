@@ -1,0 +1,13 @@
+*.pyc
+*.ckpt
+
+__pycache__
+.mypy_cache/
+
+input/*
+output/*
+models/*
+
+!input/inv3d_real/*
+!output/README.md
+!models/README.md
