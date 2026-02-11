@@ -325,7 +325,7 @@ sudo apt-get install libgl1-mesa-glx libglib2.0-0
 | Illumination Correction | ~3s | ~20s | Patch-based (128×128) |
 | **Total** | **~4.5s** | **~30s** | For 1700×2200 output |
 
-*Tested on: NVIDIA RTX 3080 / Intel i7-11800H @ 2.3GHz*
+*Tested on: NVIDIA RTX 4060 / AMD Ryzen7 260 @ 3.8GHz*
 
 ## 🤝 Contributing
 
